@@ -1,5 +1,6 @@
 import socket
 import shlex
+import re
 from zeroconf import ServiceBrowser, Zeroconf
 
 
@@ -17,7 +18,9 @@ class LineUs:
         self.line_us_name = ''
         self.info = {}
 
-    def connect(self, line_us_name):
+    def connect(self, line_us_name=None):
+        if line_us_name is None:
+            line_us_name = self.listener.get_first_line_us()[2]
         self.__line_us = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             self.__line_us.connect((line_us_name, 1337))
@@ -71,12 +74,46 @@ class LineUs:
         self.__send_command(cmd)
         self.__read_response()
 
-    def send_gcode(self, gcode, parameters):
+    def send_gcode(self, gcode, parameters=''):
         cmd = gcode.encode()
         cmd += b' '
         cmd += parameters.encode()
         self.__send_command(cmd)
         return self.__read_response()
+
+    def send_raw_gcode(self, gcode):
+        cmd = gcode.encode()
+        self.__send_command(cmd)
+        return self.__read_response()
+
+    def save_to_lineus(self, gcode, position):
+        self.send_gcode('M28', f'S{position}')
+        for line in gcode.splitlines():
+            self.send_raw_gcode(line)
+        self.send_gcode('M29')
+
+    def list_lineus_files(self):
+        info = []
+        raw_info = self.send_gcode('M20')
+        fields = shlex.split(raw_info.decode('utf-8'))
+        if fields.pop(0) != 'ok':
+            return None
+        else:
+            fields = re.split(':', fields[0])
+            if fields.pop(0) != 'FS':
+                return None
+            else:
+                fields = re.split(';', fields[0])
+                for field in fields:
+                    if field != '':
+                        detail = re.split('-', field)
+                        file_number = detail[0].lstrip('/')
+                        file_number = file_number.lstrip('0')
+                        file_number = file_number.rstrip('.txt')
+                        file_size = detail[1]
+                        info.append((file_number, file_size, detail[0]))
+        return info
+
 
     def __read_response(self):
         """Read from the socket one byte at a time until we get a null"""
@@ -134,11 +171,18 @@ class LineUsListener:
 
 
 if __name__ == '__main__':
+
+    connected = False
+
     def callback_func(line_us):
+        global connected
+        connected = True
         print(f'callback: {line_us[0]}')
 
 
     my_line_us = LineUs()
     my_line_us.on_found_line_us(callback_func)
-    while True:
+    while not connected:
         pass
+    my_line_us.connect()
+    print(my_line_us.list_lineus_files())
