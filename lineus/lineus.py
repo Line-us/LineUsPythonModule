@@ -2,40 +2,58 @@ import socket
 import shlex
 import re
 from zeroconf import ServiceBrowser, Zeroconf
+import netifaces
+import ipaddress
+
+# python setup.py sdist
+# twine upload dist/lineus-0.1.3.tar.gz
 
 
 class LineUs:
     """An example class to show how to use the Line-us API"""
 
+    __line_us = None
+    __connected = False
+    __hello_message = ''
+    on_found_line_us_callback = None
+    zeroconf = Zeroconf()
+    listener = None
+    browser = None
+    line_us_name = ''
+    info = {}
+    __default_port = 1337
+    __default_slow_search_timeout = 0.2
+
     def __init__(self):
-        self.__line_us = None
-        self.__connected = False
-        self.__hello_message = ''
-        self.on_found_line_us_callback = None
-        self.zeroconf = Zeroconf()
         self.listener = LineUsListener()
         self.browser = ServiceBrowser(self.zeroconf, "_lineus._tcp.local.", self.listener)
-        self.line_us_name = ''
-        self.info = {}
 
-    def connect(self, line_us_name=None):
+    def connect(self, line_us_name=None, timeout=None):
         if line_us_name is None:
             line_us_name = self.listener.get_first_line_us()[2]
         self.__line_us = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if timeout is not None:
+            self.__line_us.settimeout(timeout)
         try:
-            self.__line_us.connect((line_us_name, 1337))
-        except:
+            self.__line_us.connect((line_us_name, self.__default_port))
+        except OSError:
             return False
         self.__connected = True
         self.line_us_name = line_us_name
         self.__hello_message = self.__read_response()
         return True
 
+    def set_timeout(self, timeout):
+        self.__line_us.settimeout(timeout)
+
     def connected(self):
         return self.__connected
 
     def get_name(self):
         return self.line_us_name
+
+    def get_line_us_list(self):
+        return self.listener.get_line_us_list()
 
     def get_info(self):
         info = {}
@@ -53,10 +71,18 @@ class LineUs:
         return info
 
     def get_hello_string(self):
+        hello_message = {}
         if self.__connected:
-            return self.__hello_message.encode('ascii')
+            hello = self.__hello_message.decode('utf-8')
+            fields = shlex.split(hello)
+            if fields.pop(0) != 'hello':
+                return None
+            for field in fields:
+                split_fields = field.split(':', 1)
+                hello_message[split_fields[0]] = split_fields[1]
+            return hello_message
         else:
-            return 'Not connected'
+            return None
 
     def disconnect(self):
         """Close the connection to the Line-us"""
@@ -114,7 +140,6 @@ class LineUs:
                         info.append((file_number, file_size, detail[0]))
         return info
 
-
     def __read_response(self):
         """Read from the socket one byte at a time until we get a null"""
         line = b''
@@ -134,6 +159,25 @@ class LineUs:
     def on_found_line_us(self, callback):
         self.listener.on_found_line_us(callback)
 
+    def slow_search(self, return_first=True, timeout=None):
+        found_line_us = []
+        if timeout is None:
+            timeout = self.__default_slow_search_timeout
+        nets = NetFinder()
+        for ip in nets.get_all_ips():
+            if self.connect(str(ip), timeout):
+                hello = self.get_hello_string()
+                line_us = (hello['NAME'], f'{hello["NAME"]}.local', str(ip), self.__default_port)
+                if return_first:
+                    return [line_us]
+                else:
+                    found_line_us.append(line_us)
+        return found_line_us
+
+    @staticmethod
+    def get_network_list():
+        return NetFinder().get_network_list()
+
 
 class LineUsListener:
 
@@ -141,9 +185,12 @@ class LineUsListener:
         self.on_found_line_us_callback = None
         self.line_us_list = []
 
-    @staticmethod
-    def remove_service(_self, _zeroconf, _service_type, name):
-        print("Service %s removed" % (name,))
+    def remove_service(self, zeroconf, service_type, name):
+        info = zeroconf.get_service_info(service_type, name)
+        line_us_name = info.server.split('.')[0]
+        line_us = (line_us_name, info.server, socket.inet_ntoa(info.address), info.port)
+        self.line_us_list.remove(line_us)
+        print(f'Service {name} removed')
 
     def add_service(self, zeroconf, service_type, name):
         info = zeroconf.get_service_info(service_type, name)
@@ -167,23 +214,76 @@ class LineUsListener:
         return self.line_us_list[number]
 
     def get_line_us_list(self):
-        return
+        return self.line_us_list
+
+
+class NetFinder:
+
+    network_list = []
+
+    def __init__(self):
+        interfaces = netifaces.interfaces()
+        for interface in interfaces:
+            if netifaces.ifaddresses(interface) is not None and netifaces.AF_INET in netifaces.ifaddresses(interface):
+                this_interface = netifaces.ifaddresses(interface)[netifaces.AF_INET][0]
+                this_interface_detail = {'name': interface}
+                for field in ('addr', 'netmask', 'broadcast'):
+                    if field in this_interface:
+                        this_interface_detail[field] = this_interface[field]
+                if 'addr' in this_interface_detail and 'netmask' in this_interface_detail:
+                    if 'broadcast' in this_interface_detail:
+                        if not this_interface_detail['addr'].startswith('127'):
+                            self.network_list.append(this_interface_detail)
+
+    def get_network_list(self):
+        return self.network_list
+
+    def get_all_ips(self, interface=None):
+        ips = []
+        if interface is None:
+            interface_list = self.network_list
+        else:
+            interface_list = self.network_list[interface]
+        for interface in interface_list:
+            addr = interface['addr']
+            netmask_bits = self.netmask_to_cidr(interface['netmask'])
+            # print(f'{addr} - {netmask_bits}')
+            network = ipaddress.ip_network(f'{addr}/{netmask_bits}', strict=False)
+            for host in network.hosts():
+                ips.append(host)
+        return ips
+
+    @staticmethod
+    def netmask_to_cidr(netmask):
+        return sum([bin(int(x)).count('1') for x in netmask.split('.')])
 
 
 if __name__ == '__main__':
 
-    connected = False
-
-    def callback_func(line_us):
-        global connected
-        connected = True
-        print(f'callback: {line_us[0]}')
-
+    # found_line_us = False
+    #
+    # def callback_func(line_us):
+    #     global found_line_us
+    #     found_line_us = True
+    #     print(f'callback: {line_us[0]}')
 
     my_line_us = LineUs()
-    my_line_us.on_found_line_us(callback_func)
-    while not connected:
-        pass
-    my_line_us.connect()
-    files = my_line_us.list_lineus_files()
-    print(files)
+    print(my_line_us.get_network_list())
+    # line_us_list = my_line_us.slow_search(False)
+    # print(line_us_list)
+    # my_line_us.connect(line_us_list[0][1])
+    # print(my_line_us.get_info())
+    # my_line_us.on_found_line_us(callback_func)
+    # while not found_line_us:
+    #     pass
+    # my_line_us.connect()
+    # print(my_line_us.get_hello_string())
+    # print(f'Found some machines: {my_line_us.get_line_us_list()}')
+    # my_line_us.connect()
+    # files = my_line_us.list_lineus_files()
+    # print(files)
+    # for i in range(80, 254):
+    #     print(i)
+    #     if my_line_us.connect(f'192.168.1.{i}', .3):
+    #         my_line_us.set_timeout(20)
+    #         print(my_line_us.get_info())
