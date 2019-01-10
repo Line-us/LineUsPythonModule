@@ -185,4 +185,5 @@ if __name__ == '__main__':
     while not connected:
         pass
     my_line_us.connect()
-    print(my_line_us.list_lineus_files())
+    files = my_line_us.list_lineus_files()
+    print(files)
