@@ -16,8 +16,9 @@ class LineUs:
     """An example class to show how to use the Line-us API"""
 
     __default_port = 1337
-    __default_slow_search_timeout = 0.2
+    __default_slow_search_timeout = .5
     __default_connect_timeout = 5
+    __default_thread_count = 20
 
     def __init__(self):
         self.__line_us = None
@@ -185,6 +186,7 @@ class LineUs:
             duration = (time.perf_counter() - start) * 1000
             ping_times.append(duration)
             # time.sleep(0.05)
+        self.disconnect()
         mean = statistics.mean(ping_times)
         stdev = statistics.stdev(ping_times)
         max_ping = max(ping_times)
@@ -204,7 +206,7 @@ class LineUs:
             net_list = nets.get_network_list()
             if network > len(net_list):
                 return []
-        thread_count = 50
+        thread_count = self.__default_thread_count
         ip_list = []
         for i in range(0, thread_count):
             ip_list.append([])
@@ -216,7 +218,7 @@ class LineUs:
                 counter = 0
         thread_list = []
         for thread_id in range(0, thread_count):
-            thread = SlowSearchThread(ip_list[thread_id], return_first=return_first,)
+            thread = SlowSearchThread(ip_list[thread_id], return_first=return_first, timeout=timeout)
             thread_list.append(thread)
             thread.start()
         for thread in thread_list:
@@ -228,16 +230,13 @@ class LineUs:
 
 class SlowSearchThread(threading.Thread):
 
-    __default_slow_search_timeout = 1
     __default_port = 1337
 
-    def __init__(self, search_list, return_first=True, timeout=None):
+    def __init__(self, search_list, timeout, return_first=True):
         threading.Thread.__init__(self)
         self.search_list = search_list
         self.return_first = return_first
         self.timeout = timeout
-        if timeout is None:
-            self.timeout = self.__default_slow_search_timeout
         self.found_line_us = []
 
     def run(self):
@@ -246,6 +245,7 @@ class SlowSearchThread(threading.Thread):
             # print(ip)
             if line_us_object.connect(str(ip), timeout=self.timeout):
                 hello = line_us_object.get_hello_string()
+                line_us_object.disconnect()
                 line_us = (hello['NAME'], f'{hello["NAME"]}.local', str(ip), self.__default_port)
                 self.found_line_us.append(line_us)
                 if self.return_first:
@@ -336,5 +336,5 @@ class NetFinder:
 if __name__ == '__main__':
 
     my_line_us = LineUs()
-    line_us_list = my_line_us.slow_search(return_first=False, timeout=0.3)
+    line_us_list = my_line_us.slow_search(return_first=False,)
     print(line_us_list)
