@@ -37,7 +37,7 @@ class Diagnostics(threading.Thread):
             for i in range(0, len(networks)):
                 if self.cancelled():
                     return
-                self.status(f'Looking for Line-us on {networks[i]["name"]} - this may take a while')
+                self.status(f'Looking for Line-us on {networks[i]["name"]} - this may take a few minutes')
                 line_us_list = self.my_line_us.slow_search(network=i, return_first=False)
                 self.diags['scanned'][networks[i]['name']] = line_us_list
 
