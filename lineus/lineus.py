@@ -8,9 +8,6 @@ import threading
 import time
 import statistics
 
-# python setup.py sdist
-# twine upload dist/lineus-0.1.3.tar.gz
-
 
 class LineUs:
     """A class to control your Line-us"""
@@ -174,12 +171,12 @@ class LineUs:
                 line += char
             elif char == b'\x00':
                 break
-        print(f'R:{line.decode("utf - 8")}')
+        # print(f'R:{line.decode("utf - 8")}')
         return line.decode('utf-8')
 
     def _send_command(self, command):
         """Send the command to Line-us"""
-        print(f'S:{command}')
+        # print(f'S:{command}')
         command += b'\x00'
         self._line_us.send(command)
 

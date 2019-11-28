@@ -1,8 +1,11 @@
 from setuptools import setup
 
+# python setup.py sdist
+# twine upload dist/lineus-0.1.3.tar.gz
+
 setup(
     name='lineus',
-    version='0.1.16',
+    version='0.1.18',
     packages=['lineus'],
     url='https://www.line-us.com',
     license='MIT',
