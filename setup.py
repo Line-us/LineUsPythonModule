@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='lineus',
-    version='0.1.15',
+    version='0.1.16',
     packages=['lineus'],
     url='https://www.line-us.com',
     license='MIT',

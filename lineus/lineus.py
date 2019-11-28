@@ -13,17 +13,17 @@ import statistics
 
 
 class LineUs:
-    """An example class to show how to use the Line-us API"""
+    """A class to control your Line-us"""
 
-    __default_port = 1337
-    __default_slow_search_timeout = .5
-    __default_connect_timeout = 5
-    __default_thread_count = 20
+    _default_port = 1337
+    _default_slow_search_timeout = .5
+    _default_connect_timeout = 5
+    _default_thread_count = 20
 
     def __init__(self):
-        self.__line_us = None
-        self.__connected = False
-        self.__hello_message = ''
+        self._line_us = None
+        self._connected = False
+        self._hello_message = None
         self.on_found_line_us_callback = None
         self.zeroconf = zeroconf.Zeroconf()
         self.listener = None
@@ -42,28 +42,35 @@ class LineUs:
                 line_us_name = self.listener.get_first_line_us()
                 if line_us_name is None and time.perf_counter() - start_time > wait:
                     return False
-        if isinstance(line_us_name, list):
+        if isinstance(line_us_name, (list, tuple)):
             line_us_name = line_us_name[2]
-        self.__line_us = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._line_us = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if timeout is not None:
-            self.__line_us.settimeout(timeout)
+            self._line_us.settimeout(timeout)
         else:
-            self.__line_us.settimeout(self.__default_connect_timeout)
+            self._line_us.settimeout(self._default_connect_timeout)
         try:
-            self.__line_us.connect((line_us_name, self.__default_port))
+            self._line_us.connect((line_us_name, self._default_port))
         except OSError:
             # print(error)
             return False
-        self.__connected = True
+        self._connected = True
         self.line_us_name = line_us_name
-        self.__hello_message = self.__read_response()
+        self._hello_message = self._read_response()
         return True
 
     def set_timeout(self, timeout):
-        self.__line_us.settimeout(timeout)
+        try:
+            timeout = int(timeout)
+            self.timeout = timeout
+            if self.connected():
+                self._line_us.settimeout(timeout)
+            return True
+        except ValueError:
+            return False
 
     def connected(self):
-        return self.__connected
+        return self._connected
 
     def get_name(self):
         return self.line_us_name
@@ -74,7 +81,7 @@ class LineUs:
     def get_info(self):
         info = {}
         raw_info = self.send_gcode('M122', '')
-        fields = shlex.split(raw_info.decode('utf-8'))
+        fields = shlex.split(raw_info)
         if fields.pop(0) != 'ok':
             return None
         else:
@@ -88,9 +95,8 @@ class LineUs:
 
     def get_hello_string(self):
         hello_message = {}
-        if self.__connected:
-            hello = self.__hello_message.decode('utf-8')
-            fields = shlex.split(hello)
+        if self._connected:
+            fields = shlex.split(self._hello_message)
             if fields.pop(0) != 'hello':
                 return None
             for field in fields:
@@ -102,8 +108,10 @@ class LineUs:
 
     def disconnect(self):
         """Close the connection to the Line-us"""
-        self.__line_us.close()
-        self.__connected = False
+        if self.connected():
+            self._line_us.close()
+            self._connected = False
+        return True
 
     def g01(self, x, y, z):
         """Send a G01 (interpolated move), and wait for the response before returning"""
@@ -113,31 +121,32 @@ class LineUs:
         cmd += str(y).encode()
         cmd += b' Z'
         cmd += str(z).encode()
-        self.__send_command(cmd)
-        self.__read_response()
+        self._send_command(cmd)
+        return self._read_response()
 
     def send_gcode(self, gcode, parameters=''):
         cmd = gcode.encode()
         cmd += b' '
         cmd += parameters.encode()
-        self.__send_command(cmd)
-        return self.__read_response()
+        self._send_command(cmd)
+        return self._read_response()
 
     def send_raw_gcode(self, gcode):
         cmd = gcode.encode()
-        self.__send_command(cmd)
-        return self.__read_response()
+        self._send_command(cmd)
+        return self._read_response()
 
     def save_to_lineus(self, gcode, position):
         self.send_gcode('M28', f'S{position}')
         for line in gcode.splitlines():
             self.send_raw_gcode(line)
         self.send_gcode('M29')
+        return 'ok'
 
     def list_lineus_files(self):
         info = []
         raw_info = self.send_gcode('M20')
-        fields = shlex.split(raw_info.decode('utf-8'))
+        fields = shlex.split(raw_info)
         if fields.pop(0) != 'ok':
             return None
         else:
@@ -156,21 +165,23 @@ class LineUs:
                         info.append((file_number, file_size, detail[0]))
         return info
 
-    def __read_response(self):
+    def _read_response(self):
         """Read from the socket one byte at a time until we get a null"""
         line = b''
         while True:
-            char = self.__line_us.recv(1)
+            char = self._line_us.recv(1)
             if char != b'\x00':
                 line += char
             elif char == b'\x00':
                 break
-        return line
+        print(f'R:{line.decode("utf - 8")}')
+        return line.decode('utf-8')
 
-    def __send_command(self, command):
+    def _send_command(self, command):
         """Send the command to Line-us"""
+        print(f'S:{command}')
         command += b'\x00'
-        self.__line_us.send(command)
+        self._line_us.send(command)
 
     def on_found_line_us(self, callback):
         self.listener.on_found_line_us(callback)
@@ -200,13 +211,13 @@ class LineUs:
     def slow_search(self, network=None, return_first=True, timeout=None):
         self.slow_line_us_list = []
         if timeout is None:
-            self.timeout = self.__default_slow_search_timeout
+            self.timeout = self._default_slow_search_timeout
         nets = NetFinder()
         if network is not None:
             net_list = nets.get_network_list()
             if network > len(net_list):
                 return []
-        thread_count = self.__default_thread_count
+        thread_count = self._default_thread_count
         ip_list = []
         for i in range(0, thread_count):
             ip_list.append([])
@@ -230,7 +241,7 @@ class LineUs:
 
 class SlowSearchThread(threading.Thread):
 
-    __default_port = 1337
+    _default_port = 1337
 
     def __init__(self, search_list, timeout, return_first=True):
         threading.Thread.__init__(self)
@@ -246,7 +257,7 @@ class SlowSearchThread(threading.Thread):
             if line_us_object.connect(str(ip), timeout=self.timeout):
                 hello = line_us_object.get_hello_string()
                 line_us_object.disconnect()
-                line_us = (hello['NAME'], f'{hello["NAME"]}.local', str(ip), self.__default_port)
+                line_us = (hello['NAME'], f'{hello["NAME"]}.local', str(ip), self._default_port)
                 self.found_line_us.append(line_us)
                 if self.return_first:
                     return
@@ -336,5 +347,6 @@ class NetFinder:
 if __name__ == '__main__':
 
     my_line_us = LineUs()
-    line_us_list = my_line_us.slow_search(return_first=False,)
-    print(line_us_list)
+    my_line_us.connect()
+    # line_us_list = my_line_us.slow_search(return_first=False,)
+    # print(line_us_list)

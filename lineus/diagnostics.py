@@ -87,7 +87,9 @@ class Diagnostics(threading.Thread):
     def connect_line_us(self, line_us):
         success = self.my_line_us.connect(line_us)
         if success:
-            return True, self.my_line_us.get_hello_string()
+            hello = self.my_line_us.get_hello_string()
+            self.my_line_us.disconnect()
+            return True, hello
         else:
             return False, {}
 
@@ -107,7 +109,6 @@ class Diagnostics(threading.Thread):
             return True
         else:
             return False
-
 
     def cancel(self):
         self.status('Cancelling')

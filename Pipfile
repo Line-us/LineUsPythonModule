@@ -7,6 +7,7 @@ name = "pypi"
 zeroconf = "*"
 netifaces = "*"
 ipaddress = "*"
+coverage = "*"
 
 [dev-packages]
 twine = "*"
