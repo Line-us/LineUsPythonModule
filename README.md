@@ -1,4 +1,4 @@
-##Welcome to LineUsPythonModule!
+## Welcome to LineUsPythonModule!
 
 The LineUsPythonModule is a really simple and easy way to get started with controlling your Line-us from Python. Take a look at the [Quickstart section](https://lineuspythonmodule.readthedocs.io/en/latest/#quickstart) in the documentation to get going.
 
