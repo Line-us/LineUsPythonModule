@@ -10,7 +10,15 @@ import statistics
 
 
 class LineUs:
-    """A class to control your Line-us"""
+    """
+    The Python module for Line-us. The module allows you to easily control your Line-us from Python using
+    the TCP API which allow full access to all of the Line-us GCodes. Create a Line-us instance using::
+
+        >>> my_line_us = LineUs()
+
+    It is worth creating the ``LineUs()`` object as early as possible in your code as the search for
+    machines begins as soon as the objet is created.
+    """
 
     _default_port = 1337
     _default_slow_search_timeout = .5
@@ -25,7 +33,7 @@ class LineUs:
         self.zeroconf = zeroconf.Zeroconf()
         self.listener = None
         self.browser = None
-        self.line_us_name = ''
+        self.line_us_name = None
         self.slow_line_us_list = []
         self.info = {}
         self.timeout = 0
@@ -33,6 +41,17 @@ class LineUs:
         self.browser = zeroconf.ServiceBrowser(self.zeroconf, "_lineus._tcp.local.", self.listener)
 
     def connect(self, line_us_name=None, wait=2, timeout=None):
+        """
+        Connect to a Line-us. If ``line_us_name`` is not specified then the module will connect to the first
+        Line-us that it finds. The Bonjour search starts when the LineUs object is created and it may take some
+        time to discover the Line-us machines so the ``connect()`` function allows you to set a wait time (default 2s)
+        to allow discovery. A timeout for the TCP connection can also be set. The default is ``None``, so the connection
+        will wait forever. The simplest form of connect is::
+
+            >>> my_line_us.connect()
+
+        Returns ``True`` if the connection was successful.
+        """
         start_time = time.perf_counter()
         if line_us_name is None:
             while line_us_name is None:
@@ -40,14 +59,17 @@ class LineUs:
                 if line_us_name is None and time.perf_counter() - start_time > wait:
                     return False
         if isinstance(line_us_name, (list, tuple)):
-            line_us_name = line_us_name[2]
+            line_us_ip = line_us_name[2]
+            line_us_name = line_us_name[0]
+        else:
+            line_us_ip = line_us_name
         self._line_us = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if timeout is not None:
             self._line_us.settimeout(timeout)
         else:
             self._line_us.settimeout(self._default_connect_timeout)
         try:
-            self._line_us.connect((line_us_name, self._default_port))
+            self._line_us.connect((line_us_ip, self._default_port))
         except OSError:
             # print(error)
             return False
@@ -57,6 +79,15 @@ class LineUs:
         return True
 
     def set_timeout(self, timeout):
+        """
+        This function sets the TCP timeout in seconds for the TCP connection to your Line-us.
+        For example to set the timeout to 1.5 seconds::
+
+            >>> my_line_us.set_timeout(1.5)
+
+        Returns ```True``` if the timeout was successfully set.
+
+        """
         try:
             timeout = int(timeout)
             self.timeout = timeout
@@ -67,15 +98,65 @@ class LineUs:
             return False
 
     def connected(self):
+        """
+        Returns ``True`` if a Line-us is connected
+        """
         return self._connected
 
     def get_name(self):
+        """
+        Returns the name of the Line-us that you are connected to. If you are not connected to a Line-us
+        it will return ``None``.
+        """
         return self.line_us_name
 
     def get_line_us_list(self):
+        """
+        Returns an list with an element for each of the Line-us that the module has discovered. Each element
+        in the list is a tuple of: ``(name, bonjour_name, ip_address)``. You can use either the bonjour_name or the
+        ip_address in the ``connect()`` function to connect, although in most circumstances ip_address is a better
+        option as it saves a name lookup. You do not need to be connected to a Line-us to use this function::
+
+            >>> my_line_us = LineUs()
+            >>> my_line_us.get_line_us_list()
+            [('line-us-dev', 'line-us-dev.local.', '192.168.27.223', 1337), ('line-us-rob', 'line-us-rob.local.', '192.168.27.150', 1337)]
+
+        """
         return self.listener.get_line_us_list()
 
     def get_info(self):
+        """
+        Returns a dictionary with infomation about the Line-us that is currently connected. Refer to the GCode
+        spec in the Programming section of https://Line-us.com for more detail, but tan example is::
+
+            {'ChipID': '1575520',
+             'WifiMode': '1',
+             'WifiModeSet': '0',
+             'WifisConfigured': '1',
+             'MemDraw': '0',
+             'Gestures': '0',
+             'ContinuousDrawing': '0',
+             'DrawingCount': '0',
+             'name': 'line-us-dev',
+             'mac': 'C:3A:E8:18:0A:60',
+             'FlashChipID': '0x1640ef',
+             'FlashChipMode': '0',
+             'FlashChipSpeed': '40000000',
+             'FreeHeap': '25728',
+             'ResetReason': 'External System',
+             'Uptime': '0d0h12m11s',
+             'Time': 'Fri Nov 29 16',
+             'FSUsed': '112197',
+             'FSTotal': '1953282',
+             'FSFree': '1841085',
+             'FSPercent': '5',
+             'FS': '/0000001.txt-109291;/cal-29;/key-344; ',
+             'Serial': 'ikdBW+',
+             'Cal': '10.79735,-1.902405,9.900639',
+             'ZMap': '0;100;300;200',
+             'ServoReverse': '0,0,1'}
+
+        """
         info = {}
         raw_info = self.send_gcode('M122', '')
         fields = shlex.split(raw_info)
@@ -91,6 +172,14 @@ class LineUs:
         return info
 
     def get_hello_string(self):
+        """
+        Returns the hello string sent by Line-us wen you connect. The hello string is stored so you can run
+        ``get_hello_string()`` at any time that a Line-us is connected. If no Line-us is conencted it will
+        return ``None``. The hello string has a form similar to::
+
+            {'VERSION': '3.2.0 Nov 22 2019 11:28:36', 'NAME': 'line-us', 'SERIAL': '1575520'}
+
+        """
         hello_message = {}
         if self._connected:
             fields = shlex.split(self._hello_message)
@@ -104,24 +193,56 @@ class LineUs:
             return None
 
     def disconnect(self):
-        """Close the connection to the Line-us"""
+        """Close the connection to the Line-us. Returns True."""
         if self.connected():
             self._line_us.close()
-            self._connected = False
+        self._connected = False
+        self._line_us = None
+        self._hello_message = None
+        self.line_us_name = None
+        self.info = {}
+        self.timeout = 0
         return True
 
-    def g01(self, x, y, z):
-        """Send a G01 (interpolated move), and wait for the response before returning"""
-        cmd = b'G01 X'
-        cmd += str(x).encode()
-        cmd += b' Y'
-        cmd += str(y).encode()
-        cmd += b' Z'
-        cmd += str(z).encode()
+    def g01(self, x=None, y=None, z=None):
+        """
+        Send a G01 (interpolated move), and wait for the response before returning. One or more of x, y and z
+        must be specified. Some example commands are::
+
+            >>> my_line_us.g01(1000, 0, 1000)     # (x, y, z)
+            >>> my_line_us.g01(z=0)
+            >>> my_line_us.g01(1000, 500)         # (x, y)
+
+        Returns the reply message from Line-us, for Example::
+
+            ok X:1000.00 Y:0.00 Z:1000.00
+
+        """
+        if x is None and y is None and z is None:
+            return False
+        cmd = b'G01 '
+        if x is not None:
+            cmd += b' X'
+            cmd += str(x).encode()
+        if y is not None:
+            cmd += b' Y'
+            cmd += str(y).encode()
+        if z is not None:
+            cmd += b' Z'
+            cmd += str(z).encode()
         self._send_command(cmd)
         return self._read_response()
 
     def send_gcode(self, gcode, parameters=''):
+        """
+        Send an arbitrary GCode to Line-us. Refer to the GCode guide for details on supported commands. Some example
+        uses are::
+
+            >>> my_line_us.send_gcode('G28')                      # Go to home position
+            >>> my_line_us.send_gcode('M550', 'Pline-us-rob')     # Re-name your Line-us
+
+        The function returns the response from Line-us
+        """
         cmd = gcode.encode()
         cmd += b' '
         cmd += parameters.encode()
@@ -129,11 +250,28 @@ class LineUs:
         return self._read_response()
 
     def send_raw_gcode(self, gcode):
+        """
+        Send a raw GCode to Line-us. It is your responsibility to construct a vaild GCode, For example::
+
+            >>> my_line_us.send_raw_gcode('M550 Pline-us')
+
+        The function returns the response from Line-us
+        """
         cmd = gcode.encode()
         self._send_command(cmd)
         return self._read_response()
 
     def save_to_lineus(self, gcode, position):
+        """
+        Save a drawing to the Line-us internal memory. The ``position`` parameter is the file numebr to save to
+        and must be between 1 and 32. The ``gcode`` parameter is a string with the entrie gcode
+        to save with each GCode separated with ``\\n``, for example to save GCode to file number 2::
+
+            >>> gcode = 'G28\\nG01 X1000 Y0\\nG01 X1000  Y1000\\n'
+            >>> my_line_us.save_to_lineus(gcode, 2)
+
+        The function returns ``ok``
+        """
         self.send_gcode('M28', f'S{position}')
         for line in gcode.splitlines():
             self.send_raw_gcode(line)
@@ -141,6 +279,14 @@ class LineUs:
         return 'ok'
 
     def list_lineus_files(self):
+        """
+        This function returns a list of the files stored on your Line-us. Each element in the list is a tuple of
+        ``(file_number, size, fine_name)``. For Example::
+
+            >>> my_line_us.list_lineus_files()
+            [('1', '109291', '/0000001.txt'), ('2', '51765', '/0000002.txt')]
+
+        """
         info = []
         raw_info = self.send_gcode('M20')
         fields = shlex.split(raw_info)
@@ -172,6 +318,8 @@ class LineUs:
             elif char == b'\x00':
                 break
         # print(f'R:{line.decode("utf - 8")}')
+        while line[-1] in (10, 13, 0):
+            line = line[:-1]
         return line.decode('utf-8')
 
     def _send_command(self, command):
@@ -184,6 +332,16 @@ class LineUs:
         self.listener.on_found_line_us(callback)
 
     def ping(self, line_us_name, count=5):
+        """
+        The ``ping()`` command tests the speed of the connection to a Line-us. You should be disconnected before
+        calling it. It returns a ``dict`` with the following information::
+
+            {'mean': 3.7004387999999944,
+             'min': 2.9651769999999855,
+             'max': 5.283999999999955,
+             'stdev': 1.025966272915769}
+
+        """
         ping_times = []
         self.connect(line_us_name)
         # First M114 is a little slow
@@ -345,5 +503,7 @@ if __name__ == '__main__':
 
     my_line_us = LineUs()
     my_line_us.connect()
+    reply = my_line_us.ping('line-us-dev.local')
+    print(reply)
     # line_us_list = my_line_us.slow_search(return_first=False,)
     # print(line_us_list)

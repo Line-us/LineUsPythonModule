@@ -6,3 +6,5 @@ __pycache__/
 lineus\.egg-info/
 
 dist/
+
+docs/build/
