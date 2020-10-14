@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='lineus',
-    version='1.0.1',
+    version='1.0.2',
     packages=['lineus'],
     url='https://github.com/Line-us/LineUsPythonModule',
     license='MIT',

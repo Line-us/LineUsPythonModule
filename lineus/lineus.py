@@ -72,6 +72,7 @@ class LineUs:
             self._line_us.connect((line_us_ip, self._default_port))
         except OSError:
             # print(error)
+            self._line_us.close()
             return False
         self._connected = True
         self.line_us_name = line_us_name
@@ -437,11 +438,19 @@ class LineUsListener:
     def add_service(self, zconf, service_type, name):
         info = zconf.get_service_info(service_type, name)
         line_us_name = info.server.split('.')[0]
-        line_us = (line_us_name, info.server, socket.inet_ntoa(info.address), info.port)
+
+        if hasattr(info, 'address'):
+            address = socket.inet_ntoa(info.address)
+        else:
+            address = socket.inet_ntoa(info.addresses[0])
+        line_us = (line_us_name, info.server, address, info.port)
         # print(f'Found Line-us: {line_us[0]} at: {line_us[2]} port {line_us[3]}')
         self.line_us_list.append(line_us)
         if self.on_found_line_us_callback is not None:
             self.on_found_line_us_callback(line_us)
+
+    def update_service(self, *args):
+        pass
 
     def on_found_line_us(self, callback):
         self.on_found_line_us_callback = callback
