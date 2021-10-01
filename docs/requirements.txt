@@ -11,7 +11,7 @@ ifaddr==0.1.6
 imagesize==1.1.0
 importlib-metadata==0.23
 ipaddress==1.0.23
-Jinja2==2.10.3
+Jinja2==2.11.3
 keyring==19.2.0
 MarkupSafe==1.1.1
 more-itertools==7.2.0
